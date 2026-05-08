@@ -29,11 +29,13 @@ def create_paypal_order():
         
     }), status_code
 
-@app.route("/api/paypal/success", methods = ["POST"])
+@app.route("/api/paypal/success", methods=["POST"])
 def paypal_payment_success():
     try:
         data = request.get_json() or {}
+
         paypal_order_id = str(data.get("paypal_order_id", "")).strip()
+        payment_method = str(data.get("payment_method", "paypal")).strip()
         order_payload = data.get("order_data", {})
 
         if not paypal_order_id:
@@ -41,60 +43,131 @@ def paypal_payment_success():
                 "success": False,
                 "message": "PayPal order ID is required"
             }), 400
-        if not order_payload:
+
+        if not isinstance(order_payload, dict) or not order_payload:
             return jsonify({
                 "success": False,
                 "message": "Order data is required"
             }), 400
-        
-        # Capture the PayPal Order
-        try:
-            capture_response , status_code = capture_paypal_order_service(paypal_order_id)
-            if not capture_response.get("success"): 
-                return jsonify(capture_response), status_code
-            capture_data = capture_response.get("capture_response", {})
-            if capture_data.get("status") != "COMPLETED":
-                    return jsonify({
-                        "success": False,
-                        "message": "Payment not completed",
-                        "details": capture_data
-                    }), 400
-            paypal_order_id = capture_data.get("id", "")
-            order_payload["paypal_status"] = capture_data.get("status", "")
 
-            payer = capture_data.get("payer", {})
-            paypal_payer_email = payer.get("email_address", "")
-            paypal_payer_id = payer.get("payer_id", "")
+        order_id = str(order_payload.get("order_id", "")).strip()
 
-            purchase_units = capture_data.get("purchase_units", [])
-            capture_id = ""
-            capture_status = ""
-
-            if purchase_units:
-                payments = purchase_units[0].get("payments", {})
-                captures = payments.get("captures", [])
-                if captures:
-                    capture_id = captures[0].get("id", "")
-                    capture_status = captures[0].get("status", "")
-            
-            order_payload["paypal_payer_id"] = payer.get("payer_id", "")
-            order_payload["paypal_order_id"] = capture_data.get("id", "")
-            order_payload["paypal_payer_email"] = paypal_payer_email
-            order_payload["paypal_capture_id"] = capture_id
-            order_payload["paypal_capture_status"] = capture_status
-            order_payload["paypal_payer_id"] = payer.get("payer_id", "")
-            order_response, order_status_code = create_order_db(order_payload)
-            return jsonify(order_response), order_status_code
-        except Exception as e:
+        if not order_id:
             return jsonify({
                 "success": False,
-                "message": f"Error capturing PayPal order: {str(e)}"
-            }), 500
+                "message": "Internal order ID is required"
+            }), 400
+
+        # Optional but strongly recommended:
+        # Check whether this order is already saved/paid in your DB.
+        # Replace get_order_by_id() with your actual DB function.
+        # existing_order = get_order_by_id(order_id)
+
+        # if existing_order and existing_order.get("payment_status") == "paid":
+        #     return jsonify({
+        #         "success": True,
+        #         "message": "Order already saved as paid",
+        #         "order_id": order_id
+        #     }), 200
+
+        # Add PayPal/payment fields before saving to DB
+        # order_payload["payment_method"] = payment_method
+        # order_payload["payment_status"] = "paid"
+        # order_payload["payment_order_id"] = paypal_order_id
+        # order_payload[""payment_gateway_status"] = "COMPLETED"
+        # Add payment fields before saving to DB
+        order_payload["payment_method"] = payment_method
+        order_payload["payment_status"] = "paid"
+        
+        # Common payment gateway order/reference ID
+        order_payload["payment_order_id"] = paypal_order_id
+        
+        # Gateway-specific status
+        order_payload["payment_gateway_status"] = "COMPLETED"
+
+        # These are not available because you are not sending capture data
+        # order_payload["paypal_capture_id"] = ""
+        # order_payload["paypal_capture_status"] = ""
+        # order_payload["paypal_payer_email"] = ""
+        # order_payload["paypal_payer_id"] = ""
+
+        order_response, order_status_code = create_order_db(order_payload)
+
+        return jsonify(order_response), order_status_code
+
     except Exception as e:
         return jsonify({
             "success": False,
             "message": f"Error processing PayPal success callback: {str(e)}"
         }), 500
+
+
+@app.route("/api/paypal/success", methods = ["POST"])
+# def paypal_payment_success():
+#     try:
+#         data = request.get_json() or {}
+#         paypal_order_id = str(data.get("paypal_order_id", "")).strip()
+#         order_payload = data.get("order_data", {})
+
+#         if not paypal_order_id:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "PayPal order ID is required"
+#             }), 400
+#         if not order_payload:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Order data is required"
+#             }), 400
+        
+#         # Capture the PayPal Order
+#         try:
+#             capture_response , status_code = capture_paypal_order_service(paypal_order_id)
+#             if not capture_response.get("success"): 
+#                 return jsonify(capture_response), status_code
+#             capture_data = capture_response.get("capture_response", {})
+#             if capture_data.get("status") != "COMPLETED":
+#                     return jsonify({
+#                         "success": False,
+#                         "message": "Payment not completed",
+#                         "details": capture_data
+#                     }), 400
+#             paypal_order_id = capture_data.get("id", "")
+#             order_payload["paypal_status"] = capture_data.get("status", "")
+
+#             payer = capture_data.get("payer", {})
+#             paypal_payer_email = payer.get("email_address", "")
+#             paypal_payer_id = payer.get("payer_id", "")
+
+#             purchase_units = capture_data.get("purchase_units", [])
+#             capture_id = ""
+#             capture_status = ""
+
+#             if purchase_units:
+#                 payments = purchase_units[0].get("payments", {})
+#                 captures = payments.get("captures", [])
+#                 if captures:
+#                     capture_id = captures[0].get("id", "")
+#                     capture_status = captures[0].get("status", "")
+            
+#             order_payload["paypal_payer_id"] = payer.get("payer_id", "")
+#             order_payload["paypal_order_id"] = capture_data.get("id", "")
+#             order_payload["paypal_payer_email"] = paypal_payer_email
+#             order_payload["paypal_capture_id"] = capture_id
+#             order_payload["paypal_capture_status"] = capture_status
+#             order_payload["paypal_payer_id"] = payer.get("payer_id", "")
+#             order_response, order_status_code = create_order_db(order_payload)
+#             return jsonify(order_response), order_status_code
+#         except Exception as e:
+#             return jsonify({
+#                 "success": False,
+#                 "message": f"Error capturing PayPal order: {str(e)}"
+#             }), 500
+#     except Exception as e:
+#         return jsonify({
+#             "success": False,
+#             "message": f"Error processing PayPal success callback: {str(e)}"
+#         }), 500
     
 
 @app.route("/api/stripe", methods=["POST"])
